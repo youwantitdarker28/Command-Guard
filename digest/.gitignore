@@ -1,4 +1,8 @@
+# ── Compiled binary ───────────────────────────────────────────────────────────
 digest
+digest.exe
+
+# ── Go build artefacts ────────────────────────────────────────────────────────
 *.exe
 *.exe~
 *.dll
@@ -6,4 +10,33 @@ digest
 *.dylib
 *.test
 *.out
-vendor/
+/vendor/
+
+# Go coverage output
+coverage.out
+coverage.html
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Thumbnails
+._*
+
+# Spotlight
+.Spotlight-V100
+.Trashes
+
+# ── Replit ────────────────────────────────────────────────────────────────────
+# Do NOT ignore .replit or replit.nix — Replit needs them.
+.cache/
+tmp/
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

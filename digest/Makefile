@@ -1,23 +1,43 @@
-BIN      := digest
-PKG      := github.com/digest
-GOFLAGS  :=
+BIN       := digest
+MODULE    := github.com/digest
+CMD       := ./cmd/digest
+PREFIX    ?= /usr/local
 
-.PHONY: all build install clean tidy
+GOFLAGS   :=
+LDFLAGS   := -s -w
 
+.PHONY: all build test install uninstall clean tidy lint vet
+
+## Default target
 all: build
 
-## build — compile the binary into ./digest
+## build — compile the binary into the project root
 build:
-	go build $(GOFLAGS) -o $(BIN) .
+	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN) $(CMD)
 
-## install — build and place the binary in $GOPATH/bin (or ~/go/bin)
-install:
-	go install $(GOFLAGS) .
+## test — run the full test suite with race detection
+test:
+	go test -race -count=1 ./...
 
-## tidy — sync go.mod / go.sum
+## vet — run go vet across all packages
+vet:
+	go vet ./...
+
+## tidy — sync go.mod and go.sum
 tidy:
 	go mod tidy
 
-## clean — remove the compiled binary
+## install — build and install the binary to $(PREFIX)/bin
+install: build
+	install -d $(PREFIX)/bin
+	install -m 0755 $(BIN) $(PREFIX)/bin/$(BIN)
+	@echo "Installed to $(PREFIX)/bin/$(BIN)"
+
+## uninstall — remove the installed binary
+uninstall:
+	rm -f $(PREFIX)/bin/$(BIN)
+	@echo "Removed $(PREFIX)/bin/$(BIN)"
+
+## clean — remove build artefacts
 clean:
 	rm -f $(BIN)
