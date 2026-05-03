@@ -1,4 +1,4 @@
-# Digest
+# Command-Guard (digest)
 
 **The pedagogical guardrail for agentic workflows.**
 
@@ -10,7 +10,7 @@ Modern AI coding agents are remarkably capable — and remarkably opaque. When a
 
 This is the **Silent Actor** problem: an agent that acts on your behalf, against your filesystem and network, with zero transparency about what it is doing or why. The risk compounds at the edges — not in the obvious commands every developer knows, but in the compounding chain of incidental tool calls that accumulate across a session.
 
-Digest is a deliberate intervention at that boundary.
+Command-Guard (`digest`) is a deliberate intervention at that boundary.
 
 ---
 
@@ -38,12 +38,12 @@ The classifier reasons over:
 
 - **Base command** — `rm`, `sudo`, `dd`, `shred`, `chmod`, `kill`, and a full registry of known dangerous tools are immediately escalated to `HIGH`.
 - **Flag combinations** — `git push --force`, `git reset --hard`, `git clean -f`, `curl -X DELETE`, and other destructive flag patterns are caught even when the base command is otherwise benign.
-- **Dangerous substrings** — raw device redirections (`> /dev/sda`, `> /dev/nvme`), force flags (`--force`, `-f`), and pipe-to-`dd` patterns are scanned across the full command string.
+- **Dangerous substrings** — raw device redirections (`> /dev/sda`, `> /dev/nvme`), output suppression (`>/dev/null`, `2>/dev/null`, `&>/dev/null`), force flags (`--force`, `-f`), and pipe-to-`dd` patterns are scanned case-insensitively across the full command string.
 - **Package manager installs** — any install invocation is classified `MEDIUM` and triggers the dedicated package analysis path described below.
 
 ### Lip Gloss Styled TUI Cards
 
-Digest renders a structured card interface using [Lip Gloss](https://github.com/charmbracelet/lipgloss) and [Bubble Tea](https://github.com/charmbracelet/bubbletea):
+Digest renders a structured card interface using [Lip Gloss](https://github.com/charmbracelet/lipgloss) and [Bubble Tea](https://github.com/charmbracelet/bubbletea). The card width adapts dynamically to the terminal width (clamped 36–80 columns):
 
 ```
 ┃ digest   ● HIGH                                               ┃
@@ -65,7 +65,7 @@ Digest renders a structured card interface using [Lip Gloss](https://github.com/
 ┃                 └────────────────┘                           ┃
 ```
 
-For package manager commands, a dedicated **PACKAGES** section is injected between the command block and the threat assessment, listing every package name extracted from the command arguments — with a prominent caution notice:
+For package manager commands, a dedicated **PACKAGES** section is injected:
 
 ```
 ┃ PACKAGES  (npm)                                               ┃
@@ -76,39 +76,36 @@ For package manager commands, a dedicated **PACKAGES** section is injected betwe
 ┃             installation process.                             ┃
 ```
 
-Flag stripping is applied across all supported package managers so that only genuine package names appear — not `--save-dev`, `--upgrade`, `-r requirements.txt`, or similar noise.
-
 ### Package Manager Intelligence
 
-Digest understands 13 package managers out of the box:
+Digest understands 15 package managers out of the box:
 
 `npm` · `yarn` · `pnpm` · `pip` · `pip3` · `go` · `cargo` · `gem` · `brew` · `apt` · `apt-get` · `composer` · `bundle` · `nuget` · `dotnet`
 
-It distinguishes between install subcommands (`npm install`, `go get`, `cargo add`) and non-install subcommands (`npm run`, `go build`, `cargo test`), and handles edge cases like `dotnet add package`, lockfile-only installs with no explicit package names, and version-pinned module paths (`github.com/foo/bar@v1.2.3`).
-
 ### Zero-Latency Execution
 
-When approved, Digest calls `os/exec` with `cmd.Stdin`, `cmd.Stdout`, and `cmd.Stderr` bound directly to the parent process. There is no buffering, no capture, and no transformation of the output stream. Interactive programs — REPLs, editors, progress bars, pagers — work exactly as they would if invoked directly. Exit codes are propagated faithfully.
+When approved, Digest calls `os/exec` with `cmd.Stdin`, `cmd.Stdout`, and `cmd.Stderr` bound directly to the parent process. Interactive programs — REPLs, editors, progress bars, pagers — work exactly as they would if invoked directly. Exit codes are propagated faithfully.
 
 ---
 
 ## Project Layout
 
-This project follows the [Standard Go Project Layout](https://github.com/golang-standards/project-layout):
-
 ```
-digest/
+Command-Guard/
 ├── cmd/
 │   └── digest/
 │       └── main.go          # Entry point — wires analyzer → ui → exec
 ├── internal/
 │   ├── analyzer/
 │   │   ├── analyzer.go      # Risk classification and package detection
-│   │   └── analyzer_test.go # Full test suite for the classifier
+│   │   └── analyzer_test.go # Full test suite (31 cases, race-safe)
 │   ├── ui/
-│   │   └── ui.go            # Bubble Tea model and Lip Gloss card renderer
+│   │   ├── ui.go            # Bubble Tea model and Lip Gloss card renderer
+│   │   └── stderr.go        # Stderr accessor
 │   └── exec/
-│       └── exec.go          # Streaming command execution
+│       └── exec.go          # Streaming command execution, exit-code propagation
+├── scripts/
+│   └── smoke_test.sh        # End-to-end smoke test (10 assertions)
 ├── Makefile
 ├── LICENSE
 └── README.md
@@ -121,19 +118,19 @@ digest/
 ### Using `go install`
 
 ```bash
-go install github.com/digest/cmd/digest@latest
+go install github.com/youwantitdarker28/Command-Guard/cmd/digest@latest
 ```
 
 ### Build from source
 
 ```bash
-git clone https://github.com/your-org/digest
-cd digest
+git clone https://github.com/youwantitdarker28/Command-Guard
+cd Command-Guard
 make build          # produces ./digest
 make install        # installs to /usr/local/bin/digest
 ```
 
-You can override the install prefix:
+Override the install prefix:
 
 ```bash
 make install PREFIX=~/.local
@@ -196,7 +193,7 @@ digest grep -r "TODO" ./src
 
 ## Integration with AI Agents
 
-Digest is designed to be dropped in front of any shell command an agent would otherwise execute silently. Wrap your agent's shell execution tool:
+Drop Digest in front of any shell command an agent would otherwise execute silently:
 
 ```python
 # Before
@@ -221,11 +218,20 @@ The card renders to stderr; the command's own output goes to stdout. Structured 
 ## Development
 
 ```bash
-make test    # run full test suite with race detection
-make vet     # run go vet
-make tidy    # sync go.mod / go.sum
-make clean   # remove compiled binary
+make test        # run full test suite with race detection
+make vet         # run go vet
+make tidy        # sync go.mod / go.sum
+make smoke-test  # build + run end-to-end smoke tests
+make clean       # remove compiled binary
 ```
+
+### CI escape hatch
+
+```bash
+DIGEST_AUTO_APPROVE=1 digest echo success
+```
+
+Setting `DIGEST_AUTO_APPROVE=1` bypasses the interactive TUI entirely, making Digest scriptable in pipelines and smoke tests.
 
 ---
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/digest/internal/analyzer"
+	"github.com/youwantitdarker28/Command-Guard/internal/analyzer"
 )
 
 // ── Package install detection ─────────────────────────────────────────────────

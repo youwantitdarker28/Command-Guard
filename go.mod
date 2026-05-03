@@ -1,4 +1,4 @@
-module github.com/digest
+module github.com/youwantitdarker28/Command-Guard
 
 go 1.21
 

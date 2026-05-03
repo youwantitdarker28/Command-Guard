@@ -1,71 +1,68 @@
-# Workspace
+# Command-Guard
 
-## Overview
+A production-ready Go CLI tool (`digest`) — a TUI-based review layer for shell commands using Bubble Tea + Lip Gloss.
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
-Also contains a standalone Go CLI tool (`digest/`).
+## Module
 
-## Stack
-
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
-- **Go version**: 1.21
-
-## Key Commands
-
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
-
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
-
-## Digest CLI Tool (`digest/`)
-
-A Go TUI command wrapper using Bubble Tea + Lip Gloss.
-
-### Build
-
-```bash
-cd digest && go build -o digest .
-# or
-cd digest && make build
+```
+github.com/youwantitdarker28/Command-Guard
 ```
 
-### Install to PATH
+## Repository Layout
 
-```bash
-cd digest && make install
+```
+/                              ← Go project root (go.mod lives here)
+├── cmd/digest/main.go         ← Entry point: parse → analyze → TUI → exec → exit code
+├── internal/
+│   ├── analyzer/
+│   │   ├── analyzer.go        ← Risk classification + dangerous pattern scan + package detection
+│   │   └── analyzer_test.go   ← 31-case parallel test suite (race-safe)
+│   ├── ui/
+│   │   ├── ui.go              ← Bubble Tea model, WindowSizeMsg, dynamic card width, DIGEST_AUTO_APPROVE
+│   │   └── stderr.go          ← Stderr accessor
+│   └── exec/
+│       └── exec.go            ← Streaming os/exec wrapper, returns (int, error)
+├── scripts/
+│   └── smoke_test.sh          ← 10-assertion end-to-end smoke test
+├── legacy-web/                ← Archived Node/TypeScript workspace (not active)
+│   ├── artifacts/             ← Former api-server + mockup-sandbox artifacts
+│   ├── lib/                   ← Former shared TS libraries
+│   ├── scripts-ts/            ← Former TS-based scripts
+│   ├── package.json
+│   ├── pnpm-workspace.yaml
+│   └── tsconfig*.json
+├── go.mod
+├── go.sum
+├── Makefile
+├── LICENSE
+└── README.md
 ```
 
-### Usage
+## Key Design Decisions
+
+- **exec.Run returns `(int, error)`** — no `os.Exit` inside library code; exit code is propagated by `main`.
+- **DIGEST_AUTO_APPROVE=1** — env-var escape hatch that bypasses the TUI for CI and smoke tests.
+- **Dynamic card width** — `tea.WindowSizeMsg` drives `clamp(termWidth − 12, 36, 80)` content width.
+- **Case-insensitive pattern scan** — full command is lowercased before matching `dangerousPatterns`.
+- **Output suppression detection** — `>/dev/null`, `2>/dev/null`, `&>/dev/null` flagged as HIGH risk.
+
+## Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Compile `./cmd/digest` → `./digest` |
+| `make test` | `go test -race -count=1 ./...` |
+| `make vet` | `go vet ./...` |
+| `make tidy` | `go mod tidy` |
+| `make install` | Install to `/usr/local/bin` (override with `PREFIX=`) |
+| `make smoke-test` | Build + run `scripts/smoke_test.sh` |
+| `make clean` | Remove compiled binary |
+
+## Running
 
 ```bash
-digest <command> [args...]
-
-# Examples:
-digest rm -rf ./tmp           # HIGH risk
-digest sudo apt update        # HIGH risk
-digest git push --force       # HIGH risk
-digest mv old.txt new.txt     # MEDIUM risk
-digest ls -la                 # LOW risk
+make build
+./digest rm -rf ./tmp
+./digest npm install express
+DIGEST_AUTO_APPROVE=1 ./digest echo success   # CI / non-interactive
 ```
-
-### Risk Classification
-- **HIGH**: `rm`, `sudo`, `chmod`, `chown`, `dd`, `mkfs`, `shred`, `fdisk`, `kill`, `killall`, `pkill`, `truncate`, `git push --force`, `npm publish`
-- **LOW**: `ls`, `cat`, `grep`, `find`, `git`, `pwd`, `echo`, `ps`, `df`, `curl`, `wget`, and other read-only commands
-- **MEDIUM**: `mv`, `cp`, `mkdir`, `tar`, `apt`, `npm`, `docker`, `ssh`, and all unrecognized commands
-
-### Key Bindings
-- `← →` or `h l` — navigate buttons
-- `Tab` — toggle selection
-- `Enter` — confirm
-- `q` / `Esc` / `Ctrl+C` — quit (same as Abort)

@@ -15,7 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/digest/internal/analyzer"
+	"github.com/youwantitdarker28/Command-Guard/internal/analyzer"
 )
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -62,12 +62,12 @@ const (
 )
 
 type model struct {
-	result     analyzer.Result
-	selected   choice
-	approved   bool
+	result   analyzer.Result
+	selected choice
+	approved bool
 	// width is the Lip Gloss *content* width of the card (excludes border/padding).
 	// It is updated on every tea.WindowSizeMsg.
-	width      int
+	width int
 }
 
 func newModel(r analyzer.Result) model {
@@ -208,10 +208,9 @@ func (m model) View() string {
 	// Horizontal rule scaled to content width.
 	hr := divStyle.Render(strings.Repeat("─", w))
 
-	// Centered placement: wrap the card in a container that fills the terminal
-	// width and uses lipgloss.Center alignment.
+	// Centered placement wrapper.
 	center := lipgloss.NewStyle().Width(w + cardOverhead).Align(lipgloss.Center)
-	_ = center // used below in the return
+	_ = center
 
 	// Header row: title + risk badge.
 	header := lipgloss.JoinHorizontal(lipgloss.Left,

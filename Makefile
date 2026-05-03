@@ -1,4 +1,5 @@
 BIN     := digest
+MODULE  := github.com/youwantitdarker28/Command-Guard
 CMD     := ./cmd/digest
 PREFIX  ?= /usr/local
 
@@ -41,6 +42,6 @@ uninstall:
 clean:
 	rm -f $(BIN)
 
-## smoke-test — build the binary and run the end-to-end smoke test
+## smoke-test — build then run the end-to-end smoke test
 smoke-test: build
 	bash scripts/smoke_test.sh
