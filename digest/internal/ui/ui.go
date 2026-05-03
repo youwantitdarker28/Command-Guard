@@ -1,9 +1,14 @@
 // Package ui implements the Bubble Tea TUI presented to the user before a
 // command is executed. It renders a Lip Gloss styled card with the full risk
 // assessment and waits for an Approve or Abort decision.
+//
+// Setting the environment variable DIGEST_AUTO_APPROVE=1 bypasses the
+// interactive prompt and immediately returns approved=true. This is intended
+// for use in CI pipelines and smoke tests only.
 package ui
 
 import (
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -11,6 +16,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/digest/internal/analyzer"
+)
+
+// ── Layout constants ──────────────────────────────────────────────────────────
+
+const (
+	// cardOverhead is the total horizontal space consumed by the card's border
+	// (ThickBorder = 1 char each side = 2) and horizontal padding (3 each side = 6).
+	cardOverhead = 8
+
+	// cardMargin is the gap left on each side of the card so it does not touch
+	// the terminal edge.
+	cardMargin = 4
+
+	defaultWidth = 66 // content width used before the first WindowSizeMsg
+	minWidth     = 36 // never go narrower than this (mobile / small panes)
+	maxWidth     = 80 // cap to keep lines readable on wide terminals
 )
 
 // ── Key bindings ──────────────────────────────────────────────────────────────
@@ -41,39 +62,60 @@ const (
 )
 
 type model struct {
-	result   analyzer.Result
-	selected choice
-	approved bool
+	result     analyzer.Result
+	selected   choice
+	approved   bool
+	// width is the Lip Gloss *content* width of the card (excludes border/padding).
+	// It is updated on every tea.WindowSizeMsg.
+	width      int
 }
 
 func newModel(r analyzer.Result) model {
-	return model{result: r, selected: choiceApprove}
+	return model{result: r, selected: choiceApprove, width: defaultWidth}
+}
+
+// clamp returns v clamped to [lo, hi].
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	km, ok := msg.(tea.KeyMsg)
-	if !ok {
+	switch msg := msg.(type) {
+
+	// ── Terminal resize / initial size ────────────────────────────────────────
+	case tea.WindowSizeMsg:
+		// Derive content width from terminal width, accounting for card chrome.
+		m.width = clamp(msg.Width-cardOverhead-cardMargin, minWidth, maxWidth)
 		return m, nil
-	}
-	switch {
-	case key.Matches(km, keys.Quit):
-		m.approved = false
-		return m, tea.Quit
-	case key.Matches(km, keys.Left):
-		m.selected = choiceApprove
-	case key.Matches(km, keys.Right):
-		m.selected = choiceAbort
-	case key.Matches(km, keys.Tab):
-		if m.selected == choiceApprove {
-			m.selected = choiceAbort
-		} else {
+
+	// ── Keyboard ──────────────────────────────────────────────────────────────
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.Quit):
+			m.approved = false
+			return m, tea.Quit
+		case key.Matches(msg, keys.Left):
 			m.selected = choiceApprove
+		case key.Matches(msg, keys.Right):
+			m.selected = choiceAbort
+		case key.Matches(msg, keys.Tab):
+			if m.selected == choiceApprove {
+				m.selected = choiceAbort
+			} else {
+				m.selected = choiceApprove
+			}
+		case key.Matches(msg, keys.Enter):
+			m.approved = m.selected == choiceApprove
+			return m, tea.Quit
 		}
-	case key.Matches(km, keys.Enter):
-		m.approved = m.selected == choiceApprove
-		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -81,48 +123,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // ── Palette ───────────────────────────────────────────────────────────────────
 
 var (
-	clrHigh    = lipgloss.Color("#FF3B3B")
-	clrMedium  = lipgloss.Color("#FFB347")
-	clrLow     = lipgloss.Color("#3BE08B")
-	clrApprove = lipgloss.Color("#22CC66")
-	clrAbort   = lipgloss.Color("#FF3B55")
-	clrMuted   = lipgloss.Color("#6E6E8E")
-	clrSubtle  = lipgloss.Color("#AAAAC0")
-	clrAccent  = lipgloss.Color("#7C6AFF")
-	clrPkg     = lipgloss.Color("#5DD8FF")
-	clrCaution = lipgloss.Color("#FFB347")
-	clrBg      = lipgloss.Color("#0F0F1A")
-	clrBorder  = lipgloss.Color("#252538")
-	clrTitle   = lipgloss.Color("#EEEEFF")
+	clrHigh     = lipgloss.Color("#FF3B3B")
+	clrMedium   = lipgloss.Color("#FFB347")
+	clrLow      = lipgloss.Color("#3BE08B")
+	clrApprove  = lipgloss.Color("#22CC66")
+	clrAbort    = lipgloss.Color("#FF3B55")
+	clrMuted    = lipgloss.Color("#6E6E8E")
+	clrSubtle   = lipgloss.Color("#AAAAC0")
+	clrAccent   = lipgloss.Color("#7C6AFF")
+	clrPkg      = lipgloss.Color("#5DD8FF")
+	clrCaution  = lipgloss.Color("#FFB347")
+	clrBg       = lipgloss.Color("#0F0F1A")
+	clrBorder   = lipgloss.Color("#252538")
+	clrTitle    = lipgloss.Color("#EEEEFF")
 
-	// Card — the outermost container.
-	cardStyle = lipgloss.NewStyle().
-			Background(clrBg).
-			Border(lipgloss.ThickBorder()).
-			BorderForeground(clrBorder).
-			Padding(1, 3).
-			Width(66)
-
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(clrTitle)
-
-	labelStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(clrMuted).
-			MarginTop(1)
-
-	cmdStyle = lipgloss.NewStyle().
-			Foreground(clrAccent).
-			Bold(true).
-			Background(lipgloss.Color("#1A1A2E")).
-			Padding(0, 1)
-
-	subtleStyle = lipgloss.NewStyle().Foreground(clrSubtle)
-	italicStyle = lipgloss.NewStyle().Foreground(clrSubtle).Italic(true)
-	divStyle    = lipgloss.NewStyle().Foreground(clrBorder)
-	hintStyle   = lipgloss.NewStyle().Foreground(clrMuted).Italic(true)
-	pkgStyle    = lipgloss.NewStyle().Foreground(clrPkg).Bold(true)
+	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(clrTitle)
+	labelStyle   = lipgloss.NewStyle().Bold(true).Foreground(clrMuted).MarginTop(1)
+	cmdStyle     = lipgloss.NewStyle().Foreground(clrAccent).Bold(true).Background(lipgloss.Color("#1A1A2E")).Padding(0, 1)
+	subtleStyle  = lipgloss.NewStyle().Foreground(clrSubtle)
+	italicStyle  = lipgloss.NewStyle().Foreground(clrSubtle).Italic(true)
+	divStyle     = lipgloss.NewStyle().Foreground(clrBorder)
+	hintStyle    = lipgloss.NewStyle().Foreground(clrMuted).Italic(true)
+	pkgStyle     = lipgloss.NewStyle().Foreground(clrPkg).Bold(true)
 	cautionStyle = lipgloss.NewStyle().Foreground(clrCaution).Bold(true)
 )
 
@@ -169,28 +191,42 @@ func btn(label string, active bool, activeColor lipgloss.Color) string {
 		Render(label)
 }
 
-func div() string { return divStyle.Render(strings.Repeat("─", 60)) }
-
 // ── View ──────────────────────────────────────────────────────────────────────
 
 func (m model) View() string {
 	r := m.result
+	w := m.width
 
-	// Header row: title + threat badge
-	header := lipgloss.JoinHorizontal(
-		lipgloss.Left,
+	// Card style — width is dynamic, computed from window size.
+	card := lipgloss.NewStyle().
+		Background(clrBg).
+		Border(lipgloss.ThickBorder()).
+		BorderForeground(clrBorder).
+		Padding(1, 3).
+		Width(w)
+
+	// Horizontal rule scaled to content width.
+	hr := divStyle.Render(strings.Repeat("─", w))
+
+	// Centered placement: wrap the card in a container that fills the terminal
+	// width and uses lipgloss.Center alignment.
+	center := lipgloss.NewStyle().Width(w + cardOverhead).Align(lipgloss.Center)
+	_ = center // used below in the return
+
+	// Header row: title + risk badge.
+	header := lipgloss.JoinHorizontal(lipgloss.Left,
 		titleStyle.Render("digest"),
 		"   ",
 		riskBadge(r.Risk),
 	)
 
-	// Command section
+	// Command section.
 	cmdSection := lipgloss.JoinVertical(lipgloss.Left,
 		labelStyle.Render("COMMAND"),
 		cmdStyle.Render("$ "+r.Command),
 	)
 
-	// Package section (only for package manager installs)
+	// Package section (only for package-manager installs).
 	var pkgSection string
 	if r.IsPackageInstall {
 		rows := []string{labelStyle.Render("PACKAGES  (" + r.PackageManager + ")")}
@@ -210,20 +246,20 @@ func (m model) View() string {
 		pkgSection = lipgloss.JoinVertical(lipgloss.Left, rows...)
 	}
 
-	// Threat level section
+	// Threat level section.
 	tc := threatColor(r.Risk)
 	threatSection := lipgloss.JoinVertical(lipgloss.Left,
 		labelStyle.Render("THREAT LEVEL"),
 		lipgloss.NewStyle().Foreground(tc).Bold(true).Render("▲  ")+subtleStyle.Render(r.ThreatSummary),
 	)
 
-	// Prompt tip section
+	// Prompt tip section.
 	tipSection := lipgloss.JoinVertical(lipgloss.Left,
 		labelStyle.Render("PROMPT TIP"),
 		lipgloss.NewStyle().Foreground(clrAccent).Render("ℹ  ")+italicStyle.Render(r.PromptTip),
 	)
 
-	// Action buttons
+	// Action buttons.
 	actionSection := lipgloss.JoinVertical(lipgloss.Left,
 		labelStyle.Render("ACTION"),
 		lipgloss.JoinHorizontal(lipgloss.Left,
@@ -233,26 +269,33 @@ func (m model) View() string {
 		),
 	)
 
-	// Key hint
 	hint := hintStyle.Render("← → tab  navigate    enter  confirm    q / esc  quit")
 
-	// Assemble — conditionally insert package section
-	sections := []string{header, div(), cmdSection}
+	sections := []string{header, hr, cmdSection}
 	if r.IsPackageInstall {
-		sections = append(sections, div(), pkgSection)
+		sections = append(sections, hr, pkgSection)
 	}
-	sections = append(sections, div(), threatSection, tipSection, div(), actionSection, "", hint)
+	sections = append(sections, hr, threatSection, tipSection, hr, actionSection, "", hint)
 
-	return "\n" + cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, sections...)) + "\n"
+	return "\n" + center.Render(card.Render(lipgloss.JoinVertical(lipgloss.Left, sections...))) + "\n"
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 // Run launches the interactive TUI and blocks until the user makes a decision.
-// It writes all TUI output to stderr so that stdout remains clean for command
-// output after approval.
-// Returns true if the user approved, false if they aborted or quit.
+// All TUI output is written to stderr so that stdout remains clean for the
+// executed command's output after approval.
+//
+// Returns (true, nil) on approval, (false, nil) on abort/quit, or (false, err)
+// if the TUI itself encounters a fatal error.
+//
+// If the environment variable DIGEST_AUTO_APPROVE=1 is set, Run skips the TUI
+// entirely and returns (true, nil). This is intended for CI and smoke tests.
 func Run(r analyzer.Result) (bool, error) {
+	if os.Getenv("DIGEST_AUTO_APPROVE") == "1" {
+		return true, nil
+	}
+
 	m := newModel(r)
 	p := tea.NewProgram(m, tea.WithOutput(stderr()))
 	final, err := p.Run()

@@ -1,17 +1,16 @@
-BIN       := digest
-MODULE    := github.com/digest
-CMD       := ./cmd/digest
-PREFIX    ?= /usr/local
+BIN     := digest
+CMD     := ./cmd/digest
+PREFIX  ?= /usr/local
 
-GOFLAGS   :=
-LDFLAGS   := -s -w
+GOFLAGS :=
+LDFLAGS := -s -w
 
-.PHONY: all build test install uninstall clean tidy lint vet
+.PHONY: all build test vet tidy install uninstall clean smoke-test
 
-## Default target
+## all — default: build the binary
 all: build
 
-## build — compile the binary into the project root
+## build — compile the binary from cmd/digest into the project root
 build:
 	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN) $(CMD)
 
@@ -27,11 +26,11 @@ vet:
 tidy:
 	go mod tidy
 
-## install — build and install the binary to $(PREFIX)/bin
+## install — build and copy the binary to $(PREFIX)/bin
 install: build
 	install -d $(PREFIX)/bin
 	install -m 0755 $(BIN) $(PREFIX)/bin/$(BIN)
-	@echo "Installed to $(PREFIX)/bin/$(BIN)"
+	@echo "Installed $(PREFIX)/bin/$(BIN)"
 
 ## uninstall — remove the installed binary
 uninstall:
@@ -41,3 +40,7 @@ uninstall:
 ## clean — remove build artefacts
 clean:
 	rm -f $(BIN)
+
+## smoke-test — build the binary and run the end-to-end smoke test
+smoke-test: build
+	bash scripts/smoke_test.sh

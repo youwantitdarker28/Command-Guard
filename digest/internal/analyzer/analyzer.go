@@ -66,29 +66,65 @@ var highRiskCommands = map[string]string{
 }
 
 // highRiskFlagPatterns maps a base command to substrings in the full command
-// that elevate it to HIGH risk.
+// that elevate it to HIGH risk. Matching is case-insensitive (both sides are
+// lowercased before comparison in Analyze).
 var highRiskFlagPatterns = map[string][]string{
 	"git":  {"push -f", "push --force", "push --force-with-lease", "reset --hard", "clean -f", "clean --force"},
 	"npm":  {"publish"},
 	"yarn": {"publish"},
-	"curl": {"-X DELETE", "--request DELETE", "-X PUT", "--request PUT"},
+	"curl": {"-x delete", "--request delete", "-x put", "--request put"},
 	"wget": {"--delete-after"},
 }
 
-// dangerousSubstrings are patterns scanned against the raw full command string.
-// They catch shell constructs like redirections and device paths.
-var dangerousSubstrings = []struct {
+// dangerousPatterns are scanned case-insensitively against the full command
+// string. They catch shell constructs (redirections, device paths, force flags,
+// output suppression) that no per-command classifier can reliably detect.
+//
+// Each entry carries:
+//   - pattern: the substring to search for (must be lowercase; the scan
+//     lowercases the command before comparison, giving case-insensitive matching)
+//   - tip:     the human-readable explanation shown in the PROMPT TIP section
+var dangerousPatterns = []struct {
 	pattern string
 	tip     string
 }{
-	{"> /dev/sd", "Redirecting output directly to a block device (/dev/sd*) will overwrite the disk."},
+	// ── Output suppression — can conceal agent activity ──────────────────────
+	// Ordered longest-first so the most specific match wins.
+	{
+		"&>/dev/null",
+		"Redirecting both stdout and stderr to /dev/null silences the command completely — errors and output are invisible, making it impossible to verify what ran.",
+	},
+	{
+		">/dev/null",
+		"Redirecting stdout to /dev/null discards all output — any errors or confirmations will be hidden from the operator.",
+	},
+	{
+		"2>/dev/null",
+		"Redirecting stderr to /dev/null silences error messages — failures will occur without any visible indication.",
+	},
+	{
+		"> /dev/null",
+		"Redirecting output to /dev/null discards all command output — results and errors will not be visible.",
+	},
+	{
+		"2> /dev/null",
+		"Redirecting error output to /dev/null silences all error messages — failures will occur silently.",
+	},
+
+	// ── Raw device writes ────────────────────────────────────────────────────
+	{"> /dev/sd", "Redirecting output to a block device (/dev/sd*) overwrites raw disk sectors — data loss is immediate and permanent."},
 	{"> /dev/hd", "Redirecting output to a hard disk device node will destroy data on that drive."},
 	{"> /dev/nvme", "Redirecting output to an NVMe device will overwrite the device's raw sectors."},
-	{"> /dev/disk", "Redirecting output to a disk device node is a destructive low-level operation."},
+	{"> /dev/disk", "Redirecting output to a disk device node is a destructive low-level write operation."},
 	{"> /dev/vd", "Redirecting to a virtual disk device will overwrite its contents."},
-	{"| dd ", "Piping output through dd writes raw bytes directly — verify the destination first."},
-	{"--force", "The --force flag suppresses safety checks and confirmation prompts."},
-	{" -f ", "The -f (force) flag disables interactive confirmation on many commands."},
+
+	// ── Pipe-to-dd ───────────────────────────────────────────────────────────
+	{"| dd ", "Piping output through dd writes raw bytes to the destination — verify the target before proceeding."},
+
+	// ── Force flags (case-insensitive via lowercased scan) ───────────────────
+	{"--force", "The --force flag suppresses safety checks and confirmation prompts — the command will not ask for verification."},
+	{" -f ", "The -f (force) flag disables interactive confirmation on many commands — changes will be applied without further prompts."},
+	{"-f\t", "The -f (force) flag disables interactive confirmation on many commands."},
 }
 
 // ── Low-risk commands (read-only) ─────────────────────────────────────────────
@@ -342,9 +378,15 @@ func Analyze(args []string) Result {
 	fullCommand := strings.Join(args, " ")
 	base := strings.ToLower(baseName(args[0]))
 
-	// ── 1. Scan for dangerous substring patterns ───────────────────────────────
-	for _, pat := range dangerousSubstrings {
-		if strings.Contains(fullCommand, pat.pattern) {
+	// lowerCmd is used exclusively for case-insensitive pattern scanning.
+	// The original fullCommand is preserved for display.
+	lowerCmd := strings.ToLower(fullCommand)
+
+	// ── 1. Case-insensitive dangerous-pattern scan ────────────────────────────
+	// Patterns are already lowercase; lowercasing lowerCmd makes matching
+	// case-insensitive for free (handles --FORCE, &>/DEV/NULL, etc.).
+	for _, pat := range dangerousPatterns {
+		if strings.Contains(lowerCmd, pat.pattern) {
 			return Result{
 				Command:       fullCommand,
 				RawArgs:       args,
@@ -356,10 +398,12 @@ func Analyze(args []string) Result {
 		}
 	}
 
-	// ── 2. High-risk flag combinations ────────────────────────────────────────
+	// ── 2. High-risk flag combinations (case-insensitive) ────────────────────
 	if patterns, ok := highRiskFlagPatterns[base]; ok {
 		for _, pat := range patterns {
-			if strings.Contains(fullCommand, pat) {
+			// pat values in highRiskFlagPatterns are already lowercase;
+			// comparing against lowerCmd makes the check case-insensitive.
+			if strings.Contains(lowerCmd, pat) {
 				return Result{
 					Command:       fullCommand,
 					RawArgs:       args,
