@@ -238,3 +238,65 @@ Setting `DIGEST_AUTO_APPROVE=1` bypasses the interactive TUI entirely, making Di
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Governance policies
+
+Digest supports a local governance policy layer using YAML files.
+
+Policy lookup order:
+1. `./digest.policy.yaml`
+2. `~/.digest/policy.yaml`
+
+The first file found is loaded. If no policy file exists, Digest keeps the existing default behavior (approval UI for commands).
+
+Example:
+
+```yaml
+version: 1
+mode: personal
+
+rules:
+  - match: "git push --force"
+    action: block
+
+  - match: "rm -rf"
+    action: require_approval
+    reason_required: true
+
+  - category: package_install
+    action: require_approval
+
+  - category: read_only
+    action: allow
+
+audit:
+  enabled: true
+  path: ~/.digest/audit.log
+```
+
+### Actions
+
+- `allow`: execute immediately (skip TUI)
+- `warn`: show approval UI
+- `require_approval`: show approval UI
+- `block`: deny execution and exit non-zero
+
+Rules are evaluated top-to-bottom and the first matching rule wins.
+
+Rule matching supports:
+- `match`: substring match against the full command string
+- `category`: match against digest command categories (`read_only`, `package_install`, `destructive`, `privilege_escalation`, `git_history_rewrite`, `network`, `unknown`)
+
+### Audit log
+
+When `audit.enabled: true`, Digest appends JSONL records to the configured path.
+
+Each entry includes:
+- `timestamp`
+- `command`
+- `risk`
+- `category`
+- `policy_action`
+- `decision`
+
+Audit writes are best-effort: if logging fails, Digest prints a warning to stderr and continues command flow.
