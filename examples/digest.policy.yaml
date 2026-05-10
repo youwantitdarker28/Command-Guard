@@ -1,0 +1,19 @@
+version: 1
+mode: personal
+
+rules:
+  - match: "git push --force"
+    action: block
+
+  - match: "rm -rf"
+    action: require_approval
+
+  - category: package_install
+    action: require_approval
+
+  - category: read_only
+    action: allow
+
+audit:
+  enabled: true
+  path: ./digest.audit.log

@@ -238,3 +238,87 @@ Setting `DIGEST_AUTO_APPROVE=1` bypasses the interactive TUI entirely, making Di
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Governance policies
+
+Digest supports a local governance policy layer using YAML files.
+
+Policy lookup order:
+1. `./digest.policy.yaml`
+2. `~/.digest/policy.yaml`
+
+The first file found is loaded. If no policy file exists, Digest keeps the existing default behavior (approval UI for commands).
+
+Example:
+
+```yaml
+version: 1
+mode: personal
+
+rules:
+  - match: "git push --force"
+    action: block
+
+  - match: "rm -rf"
+    action: require_approval
+    reason_required: true
+
+  - category: package_install
+    action: require_approval
+
+  - category: read_only
+    action: allow
+
+audit:
+  enabled: true
+  path: ~/.digest/audit.log
+```
+
+### Actions
+
+- `allow`: execute immediately (skip TUI)
+- `warn`: show approval UI
+- `require_approval`: show approval UI
+- `block`: deny execution and exit non-zero
+
+Rules are evaluated top-to-bottom and the first matching rule wins.
+
+Rule matching supports:
+- `match`: substring match against the full command string
+- `category`: match against digest command categories (`read_only`, `package_install`, `destructive`, `privilege_escalation`, `git_history_rewrite`, `network`, `unknown`)
+
+### Audit log
+
+When `audit.enabled: true`, Digest appends JSONL records to the configured path.
+
+Each entry includes:
+- `timestamp`
+- `command`
+- `risk`
+- `category`
+- `policy_action`
+- `decision`
+
+Audit writes are best-effort: if logging fails, Digest prints a warning to stderr and continues command flow.
+
+## Quick governance demo
+
+You can run a safe end-to-end governance demo with:
+
+```bash
+bash scripts/demo_governance.sh
+```
+
+What the demo does:
+
+1. Builds the `digest` binary.
+2. Copies `examples/digest.policy.yaml` to `./digest.policy.yaml`.
+3. Runs an allowed read-only command (auto-allowed by policy).
+4. Attempts `git push --force --dry-run`, which is blocked by policy before execution.
+5. Prints recent entries from `./digest.audit.log`.
+
+Expected behavior:
+
+- The read-only command runs immediately without interactive approval.
+- The `git push --force --dry-run` invocation exits non-zero with a clear blocked-by-policy stderr message.
+- The audit log includes JSONL records for both the auto-allowed command and the blocked command.
