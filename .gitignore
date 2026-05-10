@@ -48,3 +48,4 @@ Icon
 .cache/
 .local/
 tmp/
+.env
